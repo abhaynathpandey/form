@@ -131,59 +131,108 @@
 //   console.log(`📁 Database: ${DB_FILE}\n`);
 // });
 
+require('dotenv').config();
+
 const express = require('express');
-const path    = require('path');
-const morgan  = require('morgan');
-const bcrypt  = require('bcrypt');
+const fs = require('fs');
+const path = require('path');
+const morgan = require('morgan');
+const bcrypt = require('bcrypt');
 const { Storage } = require('@google-cloud/storage');
 
-const app         = express();
-const PORT        = 8080;
+const app = express();
+const PORT = process.env.PORT || 8080;
 const SALT_ROUNDS = 10;
+const LOCAL_DB_DIR = path.join(__dirname, 'users');
+const LOCAL_DB_FILE = path.join(LOCAL_DB_DIR, 'users.json');
 
 // --- GCP Configuration ---
-const BUCKET_NAME = 'formbucket37';
-const BLOB_NAME   = 'users/users.json';
+const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'formbucket37';
+const BLOB_NAME = process.env.GCS_BLOB_NAME || 'users/users.json';
+const DEFAULT_KEY_PATHS = [
+  process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  '/home/abhaypandey/advance-drive-492907-q3.json',
+  '/home/abhay/advance-drive-492907-q3.json',
+].filter(Boolean);
 
-// Key file lives on the VM at /home/abhaypandey/advance-drive-492907-q3.json
-// It is NOT uploaded to GitHub
-const storage = new Storage({
-  projectId: 'advance-drive-492907-q3',
-  keyFilename: '/home/abhay/advance-drive-492907-q3.json',
-});
+const keyFilename = DEFAULT_KEY_PATHS.find((candidate) => fs.existsSync(candidate));
+const storageEnabled = Boolean(keyFilename);
 
-const bucket = storage.bucket(BUCKET_NAME);
-const blob   = bucket.file(BLOB_NAME);
+let blob = null;
+
+if (storageEnabled) {
+  const storage = new Storage({
+    projectId: process.env.GOOGLE_CLOUD_PROJECT || 'advance-drive-492907-q3',
+    keyFilename,
+  });
+
+  blob = storage.bucket(BUCKET_NAME).file(BLOB_NAME);
+}
 
 // --- Middleware ---
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+const ensureLocalDB = () => {
+  if (!fs.existsSync(LOCAL_DB_DIR)) {
+    fs.mkdirSync(LOCAL_DB_DIR, { recursive: true });
+  }
+
+  if (!fs.existsSync(LOCAL_DB_FILE)) {
+    fs.writeFileSync(LOCAL_DB_FILE, JSON.stringify([], null, 2));
+  }
+};
+
+const normalizePhone = (value = '') => {
+  const cleaned = String(value).trim().replace(/[^\d+]/g, '');
+  const digitsOnly = cleaned.replace(/\D/g, '');
+
+  if (!digitsOnly) {
+    return '';
+  }
+
+  if (cleaned.startsWith('+')) {
+    return `+${digitsOnly}`;
+  }
+
+  return digitsOnly;
+};
+
 // --- Helper: Read users from GCP bucket ---
 const readUsers = async () => {
-  try {
-    const [exists] = await blob.exists();
-    if (!exists) {
-      await blob.save(JSON.stringify([], null, 2), { contentType: 'application/json' });
-      return [];
+  if (storageEnabled) {
+    try {
+      const [exists] = await blob.exists();
+      if (!exists) {
+        await blob.save(JSON.stringify([], null, 2), { contentType: 'application/json' });
+        return [];
+      }
+      const [contents] = await blob.download();
+      return JSON.parse(contents.toString('utf-8'));
+    } catch (err) {
+      console.error('Error reading users from GCP, falling back to local storage:', err.message);
     }
-    const [contents] = await blob.download();
-    return JSON.parse(contents.toString('utf-8'));
-  } catch (err) {
-    console.error('Error reading users from GCP:', err);
-    throw err;
   }
+
+  ensureLocalDB();
+  const contents = fs.readFileSync(LOCAL_DB_FILE, 'utf-8');
+  return JSON.parse(contents);
 };
 
 // --- Helper: Write users to GCP bucket ---
 const writeUsers = async (users) => {
-  try {
-    await blob.save(JSON.stringify(users, null, 2), { contentType: 'application/json' });
-  } catch (err) {
-    console.error('Error writing users to GCP:', err);
-    throw err;
+  if (storageEnabled) {
+    try {
+      await blob.save(JSON.stringify(users, null, 2), { contentType: 'application/json' });
+      return;
+    } catch (err) {
+      console.error('Error writing users to GCP, falling back to local storage:', err.message);
+    }
   }
+
+  ensureLocalDB();
+  fs.writeFileSync(LOCAL_DB_FILE, JSON.stringify(users, null, 2));
 };
 
 // --- API Endpoints ---
@@ -191,6 +240,7 @@ const writeUsers = async (users) => {
 // POST /api/submit  (Registration)
 app.post('/api/submit', async (req, res) => {
   const { name, email, phone, password } = req.body;
+  const normalizedPhone = normalizePhone(phone);
 
   if (!name || !email || !phone || !password) {
     return res.status(400).json({ success: false, message: 'All fields are required.' });
@@ -205,6 +255,10 @@ app.post('/api/submit', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Unsupported email provider or domain.' });
   }
 
+  if (normalizedPhone.length < 10) {
+    return res.status(400).json({ success: false, message: 'Please enter a valid phone number.' });
+  }
+
   const pwRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
   if (!pwRegex.test(password)) {
     return res.status(400).json({ success: false, message: 'Password does not meet complexity requirements.' });
@@ -213,7 +267,7 @@ app.post('/api/submit', async (req, res) => {
   try {
     const users = await readUsers();
 
-    if (users.find(u => u.email === email || u.phone === phone)) {
+    if (users.find((u) => u.email === email || normalizePhone(u.phone) === normalizedPhone)) {
       return res.status(400).json({ success: false, message: 'User already exists.' });
     }
 
@@ -223,7 +277,7 @@ app.post('/api/submit', async (req, res) => {
       id:            users.length + 1,
       name,
       email,
-      phone,
+      phone: normalizedPhone,
       password:      hashedPassword,
       registered_at: new Date().toISOString(),
     };
@@ -242,6 +296,7 @@ app.post('/api/submit', async (req, res) => {
 // POST /api/login
 app.post('/api/login', async (req, res) => {
   const { identifier, password } = req.body;
+  const normalizedIdentifier = normalizePhone(identifier);
 
   if (!identifier || !password) {
     return res.status(400).json({ success: false, message: 'Credentials required.' });
@@ -250,7 +305,9 @@ app.post('/api/login', async (req, res) => {
   try {
     const users = await readUsers();
 
-    const user = users.find(u => u.email === identifier || u.phone === identifier);
+    const user = users.find(
+      (u) => u.email === identifier.trim() || normalizePhone(u.phone) === normalizedIdentifier
+    );
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email/phone or password.' });
@@ -276,5 +333,11 @@ app.post('/api/login', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log('Server is live on port ' + PORT);
-  console.log('GCS Bucket: gs://' + BUCKET_NAME + '/' + BLOB_NAME);
+  if (storageEnabled) {
+    console.log('GCS Bucket: gs://' + BUCKET_NAME + '/' + BLOB_NAME);
+    console.log('Using credentials from ' + keyFilename);
+  } else {
+    ensureLocalDB();
+    console.log('Using local storage at ' + LOCAL_DB_FILE);
+  }
 });

@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const emailInput = document.getElementById('email');
     const passwordInput = document.getElementById('password');
 
+    const normalizePhone = (value = '') => value.replace(/\D/g, '');
+
     const successSection = document.getElementById('success-section');
     const authSection = document.getElementById('auth-section');
 
@@ -105,12 +107,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 modeDesc.textContent = 'Enter your details to re-enter your vault.';
                 submitBtnText.textContent = 'Access Vault';
                 emailInput.placeholder = 'Email or Phone';
+                emailInput.type = 'text';
             } else {
                 modeBadge.textContent = 'New Account';
                 modeTitle.innerHTML = 'Get <span>Started.</span>';
                 modeDesc.textContent = 'Enter your credentials to access the vault.';
                 submitBtnText.textContent = 'Create Account';
                 emailInput.placeholder = 'alex@gmail.com';
+                emailInput.type = 'email';
             }
             
             serverMessage.textContent = '';
@@ -134,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const emailRegex = /^[^\s@]+@(gmail|yahoo|outlook|highspring)\.(com|in)$/i;
                 isValid = emailRegex.test(val);
             }
-            if (id === 'phone') isValid = val.replace(/\D/g, '').length === 10;
+            if (id === 'phone') isValid = normalizePhone(val).length === 10;
             if (id === 'password') {
                 const pwRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
                 isValid = pwRegex.test(val);
@@ -178,14 +182,18 @@ document.addEventListener('DOMContentLoaded', () => {
         serverMessage.textContent = '';
 
         const endpoint = mode === 'register' ? '/api/submit' : '/api/login';
+        const rawIdentifier = emailInput.value.trim();
+        const loginIdentifier = /@/.test(rawIdentifier)
+            ? rawIdentifier
+            : `${selectedCC}${normalizePhone(rawIdentifier)}`;
         
         const payload = mode === 'register' ? {
             name: nameInput.value.trim(),
             email: emailInput.value.trim(),
-            phone: selectedCC + ' ' + phoneInput.value,
+            phone: `${selectedCC}${normalizePhone(phoneInput.value)}`,
             password: passwordInput.value
         } : {
-            identifier: emailInput.value.trim(),
+            identifier: loginIdentifier,
             password: passwordInput.value
         };
 
