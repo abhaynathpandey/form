@@ -221,23 +221,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Success State ---
     const showSuccess = (user, type) => {
-        document.getElementById('res-name-val').textContent = user.name || 'User';
-        document.getElementById('res-id-val').textContent = user.email || user.identifier;
-        
+        // Populate success card with user info
+        const displayName = user?.name || payload?.name || 'User';
+        const displayId   = user?.email || payload?.email || payload?.identifier || '';
+
+        document.getElementById('res-name-val').textContent = displayName;
+        document.getElementById('res-id-val').textContent   = displayId;
+
         if (type === 'login') {
             document.getElementById('success-status').textContent = 'Access Granted!';
             document.getElementById('success-detail').textContent = 'You have successfully logged into your vault.';
+        } else {
+            document.getElementById('success-status').textContent = 'Account Created!';
+            document.getElementById('success-detail').textContent = 'Your vault account has been set up successfully.';
         }
 
-        authSection.classList.remove('active');
-        authWrapper.style.opacity = '0';
-        authWrapper.style.pointerEvents = 'none';
+        // Reset form inputs cleanly
+        authForm.reset();
+        serverMessage.textContent = '';
+        authForm.querySelectorAll('.input-group').forEach(g => g.classList.remove('invalid'));
+        selectedCCEl.textContent = '+91';
+        selectedFlagEl.textContent = '🇮🇳';
+        selectedCC = '+91';
 
-        setTimeout(() => {
-            authSection.style.display = 'none';
-            successSection.style.display = 'block';
-            setTimeout(() => successSection.classList.add('active'), 50);
-        }, 500);
+        // Hide everything except success section
+        authWrapper.style.display = 'none';
+        authSection.style.display = 'none';
+
+        successSection.style.display  = 'block';
+        successSection.style.opacity  = '0';
+        successSection.style.transform = 'translateY(20px)';
+        successSection.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                successSection.style.opacity  = '1';
+                successSection.style.transform = 'translateY(0)';
+                successSection.classList.add('active');
+            });
+        });
     };
 
     // --- Password visibility ---
