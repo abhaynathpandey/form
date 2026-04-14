@@ -103,15 +103,15 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update UI
             if (mode === 'login') {
                 modeBadge.textContent = 'Welcome Back';
-                modeTitle.innerHTML = 'Vault <span>Login.</span>';
-                modeDesc.textContent = 'Enter your details to re-enter your vault.';
-                submitBtnText.textContent = 'Access Vault';
+                modeTitle.innerHTML = 'Account <span>Login.</span>';
+                modeDesc.textContent = 'Enter your details to sign in to your account.';
+                submitBtnText.textContent = 'Sign In';
                 emailInput.placeholder = 'Email or Phone';
                 emailInput.type = 'text';
             } else {
                 modeBadge.textContent = 'New Account';
                 modeTitle.innerHTML = 'Get <span>Started.</span>';
-                modeDesc.textContent = 'Enter your credentials to access the vault.';
+                modeDesc.textContent = 'Enter your credentials to create an account.';
                 submitBtnText.textContent = 'Create Account';
                 emailInput.placeholder = 'alex@gmail.com';
                 emailInput.type = 'email';
@@ -229,11 +229,11 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('res-id-val').textContent   = displayId;
 
         if (type === 'login') {
-            document.getElementById('success-status').textContent = 'Access Granted!';
-            document.getElementById('success-detail').textContent = 'You have successfully logged into your vault.';
+            document.getElementById('success-status').textContent = 'Login Successful!';
+            document.getElementById('success-detail').textContent = 'You have successfully logged into your account.';
         } else {
             document.getElementById('success-status').textContent = 'Account Created!';
-            document.getElementById('success-detail').textContent = 'Your vault account has been set up successfully.';
+            document.getElementById('success-detail').textContent = 'Your account has been set up successfully.';
         }
 
         // Reset form inputs cleanly

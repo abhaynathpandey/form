@@ -12,8 +12,7 @@ const { Storage } = require('@google-cloud/storage');
 const app = express();
 const PORT = process.env.PORT || 8080;
 const SALT_ROUNDS = 10;
-const LOCAL_DB_DIR = path.join(__dirname, 'users');
-const LOCAL_DB_FILE = path.join(LOCAL_DB_DIR, 'users.json');
+
 
 // --- GCP Configuration ---
 const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'formbucket37';
@@ -25,33 +24,20 @@ const DEFAULT_KEY_PATHS = [
 ].filter(Boolean);
 
 const keyFilename = DEFAULT_KEY_PATHS.find((candidate) => fs.existsSync(candidate));
-const storageEnabled = Boolean(keyFilename);
 
-let blob = null;
+const storage = new Storage({
+  projectId: process.env.GOOGLE_CLOUD_PROJECT || 'advance-drive-492907-q3',
+  keyFilename,
+});
 
-if (storageEnabled) {
-  const storage = new Storage({
-    projectId: process.env.GOOGLE_CLOUD_PROJECT || 'advance-drive-492907-q3',
-    keyFilename,
-  });
-
-  blob = storage.bucket(BUCKET_NAME).file(BLOB_NAME);
-}
+const blob = storage.bucket(BUCKET_NAME).file(BLOB_NAME);
 
 // --- Middleware ---
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const ensureLocalDB = () => {
-  if (!fs.existsSync(LOCAL_DB_DIR)) {
-    fs.mkdirSync(LOCAL_DB_DIR, { recursive: true });
-  }
 
-  if (!fs.existsSync(LOCAL_DB_FILE)) {
-    fs.writeFileSync(LOCAL_DB_FILE, JSON.stringify([], null, 2));
-  }
-};
 
 const normalizePhone = (value = '') => {
   const cleaned = String(value).trim().replace(/[^\d+]/g, '');
@@ -70,48 +56,28 @@ const normalizePhone = (value = '') => {
 
 // --- Helper: Read users from GCP bucket ---
 const readUsers = async () => {
-  if (storageEnabled) {
-    try {
-      const [exists] = await blob.exists();
-      if (!exists) {
-        await blob.save(JSON.stringify([], null, 2), { contentType: 'application/json' });
-        return [];
-      }
-      const [contents] = await blob.download();
-      return JSON.parse(contents.toString('utf-8'));
-    } catch (err) {
-      console.error('Error reading users from GCP, falling back to local storage:', err.message);
-    }
-  }
-
-  ensureLocalDB();
-  const contents = fs.readFileSync(LOCAL_DB_FILE, 'utf-8').trim();
-  if (!contents) {
-    fs.writeFileSync(LOCAL_DB_FILE, JSON.stringify([], null, 2));
-    return [];
-  }
   try {
-    return JSON.parse(contents);
-  } catch {
-    console.warn('users.json was corrupt — resetting to empty array.');
-    fs.writeFileSync(LOCAL_DB_FILE, JSON.stringify([], null, 2));
-    return [];
+    const [exists] = await blob.exists();
+    if (!exists) {
+      await blob.save(JSON.stringify([], null, 2), { contentType: 'application/json' });
+      return [];
+    }
+    const [contents] = await blob.download();
+    return JSON.parse(contents.toString('utf-8'));
+  } catch (err) {
+    console.error('Error reading users from GCP:', err.message);
+    throw err;
   }
 };
 
 // --- Helper: Write users to GCP bucket ---
 const writeUsers = async (users) => {
-  if (storageEnabled) {
-    try {
-      await blob.save(JSON.stringify(users, null, 2), { contentType: 'application/json' });
-      return;
-    } catch (err) {
-      console.error('Error writing users to GCP, falling back to local storage:', err.message);
-    }
+  try {
+    await blob.save(JSON.stringify(users, null, 2), { contentType: 'application/json' });
+  } catch (err) {
+    console.error('Error writing users to GCP:', err.message);
+    throw err;
   }
-
-  ensureLocalDB();
-  fs.writeFileSync(LOCAL_DB_FILE, JSON.stringify(users, null, 2));
 };
 
 // --- API Endpoints ---
@@ -212,11 +178,6 @@ app.post('/api/login', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log('Server is live on port ' + PORT);
-  if (storageEnabled) {
-    console.log('GCS Bucket: gs://' + BUCKET_NAME + '/' + BLOB_NAME);
-    console.log('Using credentials from ' + keyFilename);
-  } else {
-    ensureLocalDB();
-    console.log('Using local storage at ' + LOCAL_DB_FILE);
-  }
+  console.log('GCS Bucket: gs://' + BUCKET_NAME + '/' + BLOB_NAME);
+  console.log('Using credentials from ' + keyFilename);
 });
